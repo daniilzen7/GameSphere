@@ -1,0 +1,57 @@
+databaseChangeLog:
+  - changeSet:
+      id: 002-create-games
+      author: gamesphere
+      changes:
+        - createTable:
+            tableName: games
+            columns:
+              - column:
+                  name: id
+                  type: uuid
+                  defaultValueComputed: gen_random_uuid()
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: title
+                  type: varchar(255)
+                  constraints:
+                    nullable: false
+                    unique: true
+              - column:
+                  name: description
+                  type: text
+              - column:
+                  name: min_players
+                  type: int
+                  constraints:
+                    nullable: false
+              - column:
+                  name: max_players
+                  type: int
+                  constraints:
+                    nullable: false
+              - column:
+                  name: complexity
+                  type: varchar(20)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: genre
+                  type: varchar(64)
+              - column:
+                  name: image_url
+                  type: varchar(512)
+              - column:
+                  name: is_active
+                  type: boolean
+                  defaultValueBoolean: true
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: timestamp with time zone
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false

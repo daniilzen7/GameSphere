@@ -1,0 +1,43 @@
+databaseChangeLog:
+  - changeSet:
+      id: 009-add-total-copies-to-games
+      author: gamesphere
+      changes:
+        - addColumn:
+            tableName: games
+            columns:
+              - column:
+                  name: total_copies
+                  type: INT
+                  defaultValueNumeric: 1
+                  constraints:
+                    nullable: false
+
+  - changeSet:
+      id: 009-add-game-id-to-bookings
+      author: gamesphere
+      changes:
+        - addColumn:
+            tableName: bookings
+            columns:
+              - column:
+                  name: game_id
+                  type: UUID
+                  constraints:
+                    nullable: true
+        - addForeignKeyConstraint:
+            baseTableName: bookings
+            baseColumnNames: game_id
+            referencedTableName: games
+            referencedColumnNames: id
+            constraintName: fk_bookings_game
+        - createIndex:
+            tableName: bookings
+            indexName: idx_bookings_game_time
+            columns:
+              - column:
+                  name: game_id
+              - column:
+                  name: start_at
+              - column:
+                  name: end_at

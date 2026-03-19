@@ -1,0 +1,56 @@
+databaseChangeLog:
+  - changeSet:
+      id: 007-create-email-notifications
+      author: gamesphere
+      changes:
+        - createTable:
+            tableName: email_notifications
+            columns:
+              - column:
+                  name: id
+                  type: uuid
+                  defaultValueComputed: gen_random_uuid()
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: booking_id
+                  type: uuid
+              - column:
+                  name: user_id
+                  type: uuid
+              - column:
+                  name: template
+                  type: varchar(64)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: status
+                  type: varchar(32)
+                  defaultValue: queued
+                  constraints:
+                    nullable: false
+              - column:
+                  name: provider_message_id
+                  type: varchar(255)
+              - column:
+                  name: created_at
+                  type: timestamp with time zone
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+              - column:
+                  name: sent_at
+                  type: timestamp with time zone
+        - addForeignKeyConstraint:
+            baseTableName: email_notifications
+            baseColumnNames: booking_id
+            referencedTableName: bookings
+            referencedColumnNames: id
+            constraintName: fk_notifications_booking
+        - addForeignKeyConstraint:
+            baseTableName: email_notifications
+            baseColumnNames: user_id
+            referencedTableName: users
+            referencedColumnNames: id
+            constraintName: fk_notifications_user
