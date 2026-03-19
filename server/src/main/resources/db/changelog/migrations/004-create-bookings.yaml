@@ -1,0 +1,84 @@
+databaseChangeLog:
+  - changeSet:
+      id: 004-create-bookings
+      author: gamesphere
+      changes:
+        - createTable:
+            tableName: bookings
+            columns:
+              - column:
+                  name: id
+                  type: uuid
+                  defaultValueComputed: gen_random_uuid()
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: user_id
+                  type: uuid
+                  constraints:
+                    nullable: false
+              - column:
+                  name: table_id
+                  type: uuid
+                  constraints:
+                    nullable: false
+              - column:
+                  name: start_at
+                  type: timestamp with time zone
+                  constraints:
+                    nullable: false
+              - column:
+                  name: end_at
+                  type: timestamp with time zone
+                  constraints:
+                    nullable: false
+              - column:
+                  name: status
+                  type: varchar(32)
+                  defaultValue: active
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: timestamp with time zone
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+              - column:
+                  name: cancelled_at
+                  type: timestamp with time zone
+        - addForeignKeyConstraint:
+            baseTableName: bookings
+            baseColumnNames: user_id
+            referencedTableName: users
+            referencedColumnNames: id
+            constraintName: fk_bookings_user
+        - addForeignKeyConstraint:
+            baseTableName: bookings
+            baseColumnNames: table_id
+            referencedTableName: game_tables
+            referencedColumnNames: id
+            constraintName: fk_bookings_table
+        - createIndex:
+            tableName: bookings
+            indexName: idx_bookings_start_at
+            columns:
+              - column:
+                  name: start_at
+        - createIndex:
+            tableName: bookings
+            indexName: idx_bookings_table_time
+            columns:
+              - column:
+                  name: table_id
+              - column:
+                  name: start_at
+              - column:
+                  name: end_at
+        - createIndex:
+            tableName: bookings
+            indexName: idx_bookings_user
+            columns:
+              - column:
+                  name: user_id

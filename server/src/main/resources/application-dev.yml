@@ -1,0 +1,9 @@
+spring:
+  jpa:
+    show-sql: true
+
+logging:
+  level:
+    ru.gamesphere: DEBUG
+    org.springframework.security: DEBUG
+    liquibase: INFO

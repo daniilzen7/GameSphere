@@ -1,0 +1,39 @@
+databaseChangeLog:
+  - changeSet:
+      id: 006-create-club-schedules
+      author: gamesphere
+      changes:
+        - createTable:
+            tableName: club_schedules
+            columns:
+              - column:
+                  name: id
+                  type: uuid
+                  defaultValueComputed: gen_random_uuid()
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: date
+                  type: date
+                  constraints:
+                    nullable: false
+              - column:
+                  name: open_time
+                  type: time
+                  constraints:
+                    nullable: false
+              - column:
+                  name: close_time
+                  type: time
+                  constraints:
+                    nullable: false
+              - column:
+                  name: note
+                  type: varchar(255)
+        - createIndex:
+            tableName: club_schedules
+            indexName: idx_club_schedules_date
+            columns:
+              - column:
+                  name: date
