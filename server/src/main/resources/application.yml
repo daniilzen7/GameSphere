@@ -1,0 +1,54 @@
+spring:
+  application:
+    name: gamesphere-server
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/gamesphere
+    username: ${DB_USERNAME:gamesphere}
+    password: ${DB_PASSWORD:gamesphere}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        type:
+          preferred_sql_type_code_for_string: 12
+
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+
+  jackson:
+    default-property-inclusion: non_null
+
+  mail:
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+server:
+  port: 8080
+  servlet:
+    context-path: /api/v1
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:defaultSecretKeyForDevelopmentOnlyMustBeAtLeast256BitsLong!!}
+    access-token-expiration-ms: 3600000
+    refresh-token-expiration-ms: 604800000

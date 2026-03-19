@@ -1,0 +1,1426 @@
+openapi: 3.0.3
+info:
+  title: GameSphere API
+  description: |
+    REST API для системы управления клубом настольных игр «GameSphere».
+    
+    Система обеспечивает:
+    - Регистрацию и авторизацию пользователей (JWT)
+    - Просмотр каталога настольных игр
+    - Онлайн-бронирование столиков
+    - Управление каталогом и бронированиями (административная панель)
+    - Автоматическую отправку email-уведомлений
+    
+    **Аутентификация:** Bearer JWT токен в заголовке `Authorization`.
+    
+    **Ролевая модель:**
+    - `player` — игрок (клиент клуба)
+    - `manager` — менеджер (администратор клуба)
+  version: 1.0.0
+  contact:
+    name: Команда GameSphere (ИТМО)
+
+servers:
+  - url: https://api.gamesphere.ru/api/v1
+    description: Production
+  - url: http://localhost:8080/api/v1
+    description: Local development
+
+tags:
+  - name: Auth
+    description: Регистрация и авторизация
+  - name: Users
+    description: Профиль пользователя
+  - name: Games
+    description: Каталог настольных игр (публичный)
+  - name: Bookings
+    description: Бронирования (игрок)
+  - name: Admin — Games
+    description: Управление каталогом игр (менеджер)
+  - name: Admin — Bookings
+    description: Управление сеткой бронирований (менеджер)
+  - name: Admin — Halls & Tables
+    description: Управление залами и столиками (менеджер)
+  - name: Admin — Schedule
+    description: Расписание работы клуба
+  - name: Admin — Notifications
+    description: Мониторинг email-уведомлений (менеджер)
+
+security:
+  - BearerAuth: []
+
+paths:
+  # ===== AUTH =====
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Регистрация нового пользователя
+      description: |
+        Создаёт учётную запись игрока. Email должен быть уникальным.
+        Пароль хэшируется (bcrypt). После регистрации отправляется welcome-email.
+      operationId: registerUser
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            example:
+              full_name: "Иван Петров"
+              email: "ivan@example.com"
+              password: "Str0ng!Pass"
+              password_confirmation: "Str0ng!Pass"
+      responses:
+        '201':
+          description: Пользователь зарегистрирован
+          content:
+            application/json:
+              example:
+                success: true
+                message: "Регистрация прошла успешно. Проверьте почту."
+                data:
+                  user_id: "550e8400-e29b-41d4-a716-446655440000"
+                  email: "ivan@example.com"
+                  full_name: "Иван Петров"
+                  role: "player"
+                  created_at: "2026-03-14T12:00:00Z"
+        '409':
+          description: Email уже зарегистрирован
+          content:
+            application/json:
+              example:
+                success: false
+                error:
+                  code: "EMAIL_ALREADY_EXISTS"
+                  message: "Пользователь с таким email уже существует."
+        '422':
+          description: Ошибка валидации
+          content:
+            application/json:
+              example:
+                success: false
+                error:
+                  code: "VALIDATION_ERROR"
+                  message: "Данные не прошли валидацию"
+                  details:
+                    - field: "password"
+                      message: "Минимум 8 символов, заглавная буква и цифра"
+                    - field: "password_confirmation"
+                      message: "Пароли не совпадают"
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Авторизация пользователя
+      description: |
+        Возвращает JWT access-токен и refresh-токен.
+        Клиент маршрутизирует: player → кабинет, manager → админ-панель.
+      operationId: loginUser
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: "ivan@example.com"
+              password: "Str0ng!Pass"
+      responses:
+        '200':
+          description: Успешная авторизация
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  access_token: "eyJhbGciOiJIUzI1NiIs..."
+                  refresh_token: "dGhpcyBpcyBhIHJlZnJl..."
+                  token_type: "Bearer"
+                  expires_in: 3600
+                  user:
+                    user_id: "550e8400-e29b-41d4-a716-446655440000"
+                    email: "ivan@example.com"
+                    full_name: "Иван Петров"
+                    role: "player"
+        '401':
+          description: Неверные учётные данные
+          content:
+            application/json:
+              example:
+                success: false
+                error:
+                  code: "INVALID_CREDENTIALS"
+                  message: "Неверный email или пароль"
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Обновление access-токена
+      operationId: refreshToken
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              refresh_token: "dGhpcyBpcyBhIHJlZnJl..."
+      responses:
+        '200':
+          description: Токены обновлены
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  access_token: "eyJhbGciOiJIUzI1NiIs...NEW"
+                  refresh_token: "bmV3IHJlZnJlc2ggdG9r..."
+                  token_type: "Bearer"
+                  expires_in: 3600
+        '401':
+          description: Невалидный refresh-токен
+          content:
+            application/json:
+              example:
+                success: false
+                error:
+                  code: "INVALID_REFRESH_TOKEN"
+                  message: "Refresh-токен недействителен или истёк"
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Выход из системы
+      operationId: logoutUser
+      responses:
+        '200':
+          description: Сессия завершена
+          content:
+            application/json:
+              example:
+                success: true
+                message: "Вы успешно вышли из системы"
+
+  # ===== USERS =====
+  /users/me:
+    get:
+      tags: [Users]
+      summary: Профиль текущего пользователя
+      operationId: getCurrentUser
+      responses:
+        '200':
+          description: Профиль
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  user_id: "550e8400-e29b-41d4-a716-446655440000"
+                  email: "ivan@example.com"
+                  full_name: "Иван Петров"
+                  role: "player"
+                  created_at: "2026-03-14T12:00:00Z"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    patch:
+      tags: [Users]
+      summary: Обновить профиль
+      operationId: updateCurrentUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              full_name: "Иван Сидоров"
+      responses:
+        '200':
+          description: Профиль обновлён
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  user_id: "550e8400-e29b-41d4-a716-446655440000"
+                  email: "ivan@example.com"
+                  full_name: "Иван Сидоров"
+                  role: "player"
+                  created_at: "2026-03-14T12:00:00Z"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ===== GAMES (PUBLIC) =====
+  /games:
+    get:
+      tags: [Games]
+      summary: Каталог настольных игр
+      description: Список активных игр с пагинацией и фильтрацией.
+      operationId: listGames
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: per_page
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+        - name: genre
+          in: query
+          schema: { type: string }
+          example: "strategy"
+        - name: min_players
+          in: query
+          schema: { type: integer }
+          example: 2
+        - name: max_players
+          in: query
+          schema: { type: integer }
+          example: 6
+        - name: complexity
+          in: query
+          schema: { type: string, enum: [easy, medium, hard] }
+        - name: search
+          in: query
+          schema: { type: string }
+          example: "Каркассон"
+        - name: sort_by
+          in: query
+          schema: { type: string, enum: [title, min_players, complexity, created_at], default: title }
+        - name: sort_order
+          in: query
+          schema: { type: string, enum: [asc, desc], default: asc }
+      responses:
+        '200':
+          description: Список игр
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  items:
+                    - game_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                      title: "Каркассон"
+                      description: "Классическая стратегия с тайлами"
+                      min_players: 2
+                      max_players: 5
+                      complexity: "easy"
+                      genre: "strategy"
+                      image_url: "/uploads/games/carcassonne.jpg"
+                    - game_id: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+                      title: "Пандемия"
+                      description: "Кооперативная игра: спасите мир от вирусов"
+                      min_players: 2
+                      max_players: 4
+                      complexity: "medium"
+                      genre: "coop"
+                      image_url: "/uploads/games/pandemic.jpg"
+                  pagination:
+                    page: 1
+                    per_page: 20
+                    total_items: 42
+                    total_pages: 3
+
+  /games/{game_id}:
+    get:
+      tags: [Games]
+      summary: Детальная карточка игры
+      operationId: getGame
+      parameters:
+        - $ref: '#/components/parameters/GameId'
+      responses:
+        '200':
+          description: Карточка игры
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  game_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                  title: "Каркассон"
+                  description: "Классическая стратегия с тайлами. Игроки выкладывают тайлы и размещают миплов."
+                  min_players: 2
+                  max_players: 5
+                  complexity: "easy"
+                  genre: "strategy"
+                  image_url: "/uploads/games/carcassonne.jpg"
+                  is_active: true
+        '404':
+          description: Игра не найдена
+          content:
+            application/json:
+              example:
+                success: false
+                error:
+                  code: "GAME_NOT_FOUND"
+                  message: "Игра с указанным ID не найдена"
+
+  # ===== BOOKINGS (PLAYER) =====
+  /bookings/available-slots:
+    get:
+      tags: [Bookings]
+      summary: Доступные слоты для бронирования
+      description: |
+        Свободные слоты на дату с учётом расписания клуба, вместимости столиков и существующих бронирований.
+      operationId: getAvailableSlots
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema: { type: string, format: date }
+          example: "2026-03-20"
+        - name: guests
+          in: query
+          required: true
+          schema: { type: integer, minimum: 1, maximum: 8 }
+          example: 4
+        - name: duration_minutes
+          in: query
+          schema: { type: integer, default: 120, minimum: 60, maximum: 360 }
+          example: 120
+      responses:
+        '200':
+          description: Доступные слоты
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  date: "2026-03-20"
+                  club_hours:
+                    open_time: "12:00"
+                    close_time: "23:00"
+                  slots:
+                    - slot_id: "slot-001"
+                      table_id: "t1a2b3c4-d5e6-7890-abcd-ef1234567890"
+                      table_label: "A1"
+                      hall_name: "Главный зал"
+                      seats: 4
+                      start_time: "12:00"
+                      end_time: "14:00"
+                    - slot_id: "slot-002"
+                      table_id: "t1a2b3c4-d5e6-7890-abcd-ef1234567890"
+                      table_label: "A1"
+                      hall_name: "Главный зал"
+                      seats: 4
+                      start_time: "14:00"
+                      end_time: "16:00"
+                    - slot_id: "slot-003"
+                      table_id: "t2b3c4d5-e6f7-8901-bcde-f12345678901"
+                      table_label: "B2"
+                      hall_name: "VIP зал"
+                      seats: 6
+                      start_time: "12:00"
+                      end_time: "14:00"
+        '400':
+          description: Некорректные параметры
+          content:
+            application/json:
+              example:
+                success: false
+                error:
+                  code: "INVALID_PARAMS"
+                  message: "Максимум гостей за столом — 8. Свяжитесь с менеджером для группового бронирования."
+        '422':
+          description: Клуб закрыт в эту дату
+          content:
+            application/json:
+              example:
+                success: false
+                error:
+                  code: "CLUB_CLOSED"
+                  message: "Клуб не работает в указанную дату"
+
+  /bookings:
+    post:
+      tags: [Bookings]
+      summary: Создать бронирование
+      description: |
+        Проверяет доступность, рабочие часы, конфликты. После создания — email-уведомление.
+      operationId: createBooking
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBookingRequest'
+            example:
+              table_id: "t1a2b3c4-d5e6-7890-abcd-ef1234567890"
+              date: "2026-03-20"
+              start_time: "14:00"
+              duration_minutes: 120
+              guests_count: 4
+      responses:
+        '201':
+          description: Бронирование создано
+          content:
+            application/json:
+              example:
+                success: true
+                message: "Столик успешно забронирован!"
+                data:
+                  booking_id: "bk-550e8400-e29b-41d4-a716-446655440000"
+                  user_id: "550e8400-e29b-41d4-a716-446655440000"
+                  table_id: "t1a2b3c4-d5e6-7890-abcd-ef1234567890"
+                  table_label: "A1"
+                  hall_name: "Главный зал"
+                  start_at: "2026-03-20T14:00:00Z"
+                  end_at: "2026-03-20T16:00:00Z"
+                  guests_count: 4
+                  status: "active"
+                  created_at: "2026-03-14T12:30:00Z"
+        '409':
+          description: Столик уже занят
+          content:
+            application/json:
+              example:
+                success: false
+                error:
+                  code: "SLOT_ALREADY_BOOKED"
+                  message: "На это время нет свободных столов."
+                  suggested_slots:
+                    - start_time: "16:00"
+                      end_time: "18:00"
+                      table_label: "A1"
+                    - start_time: "14:00"
+                      end_time: "16:00"
+                      table_label: "B2"
+        '422':
+          description: Нерабочее время
+          content:
+            application/json:
+              example:
+                success: false
+                error:
+                  code: "OUTSIDE_WORKING_HOURS"
+                  message: "Клуб работает с 12:00 до 23:00."
+
+  /bookings/my:
+    get:
+      tags: [Bookings]
+      summary: Мои бронирования
+      operationId: getMyBookings
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [active, cancelled, completed, all], default: all }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: per_page
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        '200':
+          description: Список бронирований
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  items:
+                    - booking_id: "bk-550e8400-e29b-41d4-a716-446655440000"
+                      table_label: "A1"
+                      hall_name: "Главный зал"
+                      start_at: "2026-03-20T14:00:00Z"
+                      end_at: "2026-03-20T16:00:00Z"
+                      guests_count: 4
+                      status: "active"
+                      created_at: "2026-03-14T12:30:00Z"
+                      cancelled_at: null
+                    - booking_id: "bk-660f9511-f30c-52e5-b827-557766551111"
+                      table_label: "C3"
+                      hall_name: "Главный зал"
+                      start_at: "2026-03-10T18:00:00Z"
+                      end_at: "2026-03-10T20:00:00Z"
+                      guests_count: 2
+                      status: "completed"
+                      created_at: "2026-03-08T09:00:00Z"
+                      cancelled_at: null
+                  pagination:
+                    page: 1
+                    per_page: 20
+                    total_items: 5
+                    total_pages: 1
+
+  /bookings/{booking_id}/cancel:
+    patch:
+      tags: [Bookings]
+      summary: Отменить бронирование
+      description: |
+        Ограничения: нельзя отменить прошедшее; онлайн-отмена не позднее 1 часа до начала.
+        Освобождает столик, отправляет email.
+      operationId: cancelBooking
+      parameters:
+        - $ref: '#/components/parameters/BookingId'
+      responses:
+        '200':
+          description: Бронирование отменено
+          content:
+            application/json:
+              example:
+                success: true
+                message: "Бронирование успешно отменено"
+                data:
+                  booking_id: "bk-550e8400-e29b-41d4-a716-446655440000"
+                  status: "cancelled"
+                  cancelled_at: "2026-03-14T15:00:00Z"
+        '403':
+          description: Не ваше бронирование
+          content:
+            application/json:
+              example:
+                success: false
+                error:
+                  code: "FORBIDDEN"
+                  message: "Вы можете отменять только собственные бронирования"
+        '409':
+          description: Поздняя отмена
+          content:
+            application/json:
+              example:
+                success: false
+                error:
+                  code: "LATE_CANCELLATION"
+                  message: "Онлайн-отмена возможна не позднее чем за 1 час. Позвоните менеджеру."
+        '422':
+          description: Бронирование не может быть отменено
+          content:
+            application/json:
+              example:
+                success: false
+                error:
+                  code: "BOOKING_NOT_CANCELLABLE"
+                  message: "Невозможно отменить бронирование со статусом 'completed'"
+
+  # ===== ADMIN — GAMES =====
+  /admin/games:
+    post:
+      tags: [Admin — Games]
+      summary: Добавить игру в каталог
+      description: "Роль: `manager`"
+      operationId: createGame
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGameRequest'
+            example:
+              title: "Колонизаторы"
+              description: "Стройте дороги и города на острове Катан"
+              min_players: 3
+              max_players: 4
+              complexity: "medium"
+              genre: "strategy"
+      responses:
+        '201':
+          description: Игра добавлена
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  game_id: "c3d4e5f6-a7b8-9012-cdef-123456789012"
+                  title: "Колонизаторы"
+                  description: "Стройте дороги и города на острове Катан"
+                  min_players: 3
+                  max_players: 4
+                  complexity: "medium"
+                  genre: "strategy"
+                  is_active: true
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Дубликат названия
+          content:
+            application/json:
+              example:
+                success: false
+                error:
+                  code: "GAME_TITLE_EXISTS"
+                  message: "Игра с таким названием уже существует."
+
+  /admin/games/{game_id}:
+    put:
+      tags: [Admin — Games]
+      summary: Обновить игру
+      description: "Роль: `manager`"
+      operationId: updateGame
+      parameters:
+        - $ref: '#/components/parameters/GameId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              title: "Колонизаторы"
+              description: "Обновлённое описание"
+              min_players: 3
+              max_players: 6
+              complexity: "medium"
+              genre: "strategy"
+      responses:
+        '200':
+          description: Игра обновлена
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  game_id: "c3d4e5f6-a7b8-9012-cdef-123456789012"
+                  title: "Колонизаторы"
+                  description: "Обновлённое описание"
+                  min_players: 3
+                  max_players: 6
+                  complexity: "medium"
+                  genre: "strategy"
+                  is_active: true
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Игра не найдена
+    delete:
+      tags: [Admin — Games]
+      summary: Архивировать игру
+      description: "Устанавливает is_active=false. Роль: `manager`"
+      operationId: deleteGame
+      parameters:
+        - $ref: '#/components/parameters/GameId'
+      responses:
+        '200':
+          description: Игра архивирована
+          content:
+            application/json:
+              example:
+                success: true
+                message: "Игра перемещена в архив"
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Игра не найдена
+
+  # ===== ADMIN — BOOKINGS =====
+  /admin/bookings:
+    get:
+      tags: [Admin — Bookings]
+      summary: Сетка бронирований
+      description: "Все бронирования за период. Роль: `manager`"
+      operationId: getAdminBookings
+      parameters:
+        - name: date_from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+          example: "2026-03-20"
+        - name: date_to
+          in: query
+          schema: { type: string, format: date }
+          example: "2026-03-20"
+        - name: hall_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          schema: { type: string, enum: [active, cancelled, completed, all], default: active }
+      responses:
+        '200':
+          description: Сетка бронирований
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  date_from: "2026-03-20"
+                  date_to: "2026-03-20"
+                  bookings:
+                    - booking_id: "bk-550e8400-e29b-41d4-a716-446655440000"
+                      user:
+                        user_id: "550e8400-e29b-41d4-a716-446655440000"
+                        full_name: "Иван Петров"
+                        email: "ivan@example.com"
+                      table:
+                        table_id: "t1a2b3c4-d5e6-7890-abcd-ef1234567890"
+                        label: "A1"
+                        hall_name: "Главный зал"
+                      start_at: "2026-03-20T14:00:00Z"
+                      end_at: "2026-03-20T16:00:00Z"
+                      guests_count: 4
+                      status: "active"
+                      created_at: "2026-03-14T12:30:00Z"
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Admin — Bookings]
+      summary: Создать бронь вручную
+      description: "Менеджер создаёт бронь (например, по телефону). Роль: `manager`"
+      operationId: createAdminBooking
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              table_id: "t1a2b3c4-d5e6-7890-abcd-ef1234567890"
+              date: "2026-03-21"
+              start_time: "16:00"
+              duration_minutes: 180
+              guests_count: 3
+              client_name: "Алексей (по телефону)"
+              client_phone: "+7-999-123-45-67"
+              user_id: null
+      responses:
+        '201':
+          description: Бронирование создано
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  booking_id: "bk-882gb733-h52e-74g7-d049-779988773333"
+                  table_label: "A1"
+                  hall_name: "Главный зал"
+                  start_at: "2026-03-21T16:00:00Z"
+                  end_at: "2026-03-21T19:00:00Z"
+                  guests_count: 3
+                  client_name: "Алексей (по телефону)"
+                  status: "active"
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Конфликт бронирований
+          content:
+            application/json:
+              example:
+                success: false
+                error:
+                  code: "BOOKING_CONFLICT"
+                  message: "Время пересекается с бронированием #bk-550e8400. Продолжить?"
+                  conflicting_booking:
+                    booking_id: "bk-550e8400-e29b-41d4-a716-446655440000"
+                    start_at: "2026-03-21T15:00:00Z"
+                    end_at: "2026-03-21T17:00:00Z"
+                    client_name: "Иван Петров"
+
+  /admin/bookings/{booking_id}:
+    patch:
+      tags: [Admin — Bookings]
+      summary: Изменить бронирование
+      description: "Роль: `manager`"
+      operationId: updateAdminBooking
+      parameters:
+        - $ref: '#/components/parameters/BookingId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              table_id: "t2b3c4d5-e6f7-8901-bcde-f12345678901"
+              start_time: "17:00"
+              duration_minutes: 120
+              status: "active"
+      responses:
+        '200':
+          description: Бронирование обновлено
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  booking_id: "bk-550e8400-e29b-41d4-a716-446655440000"
+                  table_label: "B2"
+                  hall_name: "VIP зал"
+                  start_at: "2026-03-20T17:00:00Z"
+                  end_at: "2026-03-20T19:00:00Z"
+                  status: "active"
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Конфликт с другим бронированием
+
+  /admin/bookings/{booking_id}/force-create:
+    post:
+      tags: [Admin — Bookings]
+      summary: Принудительное создание при конфликте
+      description: "Менеджер подтверждает создание брони несмотря на пересечение. Роль: `manager`"
+      operationId: forceCreateBooking
+      parameters:
+        - $ref: '#/components/parameters/BookingId'
+      responses:
+        '201':
+          description: Бронирование создано принудительно
+          content:
+            application/json:
+              example:
+                success: true
+                message: "Бронирование создано принудительно (с пересечением)"
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ===== ADMIN — HALLS & TABLES =====
+  /admin/halls:
+    get:
+      tags: [Admin — Halls & Tables]
+      summary: Список залов
+      operationId: listHalls
+      responses:
+        '200':
+          description: Залы
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  - hall_id: "h1a2b3c4-d5e6-7890-abcd-ef1234567890"
+                    name: "Главный зал"
+                    description: "Большой зал на 10 столиков"
+                    is_active: true
+                    tables_count: 10
+                  - hall_id: "h2b3c4d5-e6f7-8901-bcde-f12345678901"
+                    name: "VIP зал"
+                    description: "Камерный зал для больших компаний"
+                    is_active: true
+                    tables_count: 4
+    post:
+      tags: [Admin — Halls & Tables]
+      summary: Создать зал
+      operationId: createHall
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              name: "Детский зал"
+              description: "Зал для семейных мероприятий"
+      responses:
+        '201':
+          description: Зал создан
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  hall_id: "h3c4d5e6-f7a8-0123-defg-234567890123"
+                  name: "Детский зал"
+                  description: "Зал для семейных мероприятий"
+                  is_active: true
+
+  /admin/halls/{hall_id}:
+    put:
+      tags: [Admin — Halls & Tables]
+      summary: Обновить зал
+      operationId: updateHall
+      parameters:
+        - name: hall_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              name: "Детский зал (обновлён)"
+              description: "Зал для семейных мероприятий и праздников"
+              is_active: true
+      responses:
+        '200':
+          description: Зал обновлён
+    delete:
+      tags: [Admin — Halls & Tables]
+      summary: Деактивировать зал
+      operationId: deleteHall
+      parameters:
+        - name: hall_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Зал деактивирован
+
+  /admin/halls/{hall_id}/tables:
+    get:
+      tags: [Admin — Halls & Tables]
+      summary: Столики в зале
+      operationId: listTablesInHall
+      parameters:
+        - name: hall_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Столики
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  - table_id: "t1a2b3c4-d5e6-7890-abcd-ef1234567890"
+                    label: "A1"
+                    seats: 4
+                    is_active: true
+                  - table_id: "t1a2b3c4-d5e6-7890-abcd-ef1234567891"
+                    label: "A2"
+                    seats: 4
+                    is_active: true
+                  - table_id: "t1a2b3c4-d5e6-7890-abcd-ef1234567892"
+                    label: "A3"
+                    seats: 6
+                    is_active: true
+    post:
+      tags: [Admin — Halls & Tables]
+      summary: Добавить столик
+      operationId: createTable
+      parameters:
+        - name: hall_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              label: "A4"
+              seats: 8
+      responses:
+        '201':
+          description: Столик добавлен
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  table_id: "t4d5e6f7-a8b9-0123-cdef-456789012345"
+                  hall_id: "h1a2b3c4-d5e6-7890-abcd-ef1234567890"
+                  label: "A4"
+                  seats: 8
+                  is_active: true
+
+  /admin/tables/{table_id}:
+    put:
+      tags: [Admin — Halls & Tables]
+      summary: Обновить столик
+      operationId: updateTable
+      parameters:
+        - name: table_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              label: "A4-VIP"
+              seats: 10
+              is_active: true
+      responses:
+        '200':
+          description: Столик обновлён
+    delete:
+      tags: [Admin — Halls & Tables]
+      summary: Деактивировать столик
+      operationId: deleteTable
+      parameters:
+        - name: table_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Столик деактивирован
+
+  /admin/tables/{table_id}/block:
+    post:
+      tags: [Admin — Halls & Tables]
+      summary: Заблокировать столик
+      description: "Блокирует столик на период (техобслуживание, спецмероприятие). Роль: `manager`"
+      operationId: blockTable
+      parameters:
+        - name: table_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              date: "2026-03-22"
+              start_time: "12:00"
+              end_time: "18:00"
+              reason: "Техническое обслуживание стола"
+      responses:
+        '200':
+          description: Столик заблокирован
+          content:
+            application/json:
+              example:
+                success: true
+                message: "Столик A1 заблокирован с 12:00 до 18:00 (22.03.2026)"
+                data:
+                  block_id: "blk-123456"
+                  table_id: "t1a2b3c4-d5e6-7890-abcd-ef1234567890"
+                  table_label: "A1"
+                  date: "2026-03-22"
+                  start_time: "12:00"
+                  end_time: "18:00"
+                  reason: "Техническое обслуживание стола"
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/tables/{table_id}/unblock:
+    post:
+      tags: [Admin — Halls & Tables]
+      summary: Разблокировать столик
+      operationId: unblockTable
+      parameters:
+        - name: table_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              block_id: "blk-123456"
+      responses:
+        '200':
+          description: Блокировка снята
+          content:
+            application/json:
+              example:
+                success: true
+                message: "Блокировка столика снята"
+
+  # ===== SCHEDULE =====
+  /schedule:
+    get:
+      tags: [Admin — Schedule]
+      summary: Расписание работы клуба
+      description: Публичный (для авторизованных)
+      operationId: getSchedule
+      parameters:
+        - name: date_from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+          example: "2026-03-20"
+        - name: date_to
+          in: query
+          schema: { type: string, format: date }
+          example: "2026-03-27"
+      responses:
+        '200':
+          description: Расписание
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  - schedule_id: "sch-001"
+                    date: "2026-03-20"
+                    open_time: "12:00"
+                    close_time: "23:00"
+                    note: null
+                  - schedule_id: "sch-002"
+                    date: "2026-03-21"
+                    open_time: "12:00"
+                    close_time: "23:00"
+                    note: null
+                  - schedule_id: "sch-003"
+                    date: "2026-03-22"
+                    open_time: "10:00"
+                    close_time: "22:00"
+                    note: "Сокращённый день"
+
+  /admin/schedule/{date}:
+    put:
+      tags: [Admin — Schedule]
+      summary: Задать расписание на дату
+      description: "Роль: `manager`"
+      operationId: upsertSchedule
+      parameters:
+        - name: date
+          in: path
+          required: true
+          schema: { type: string, format: date }
+          example: "2026-03-25"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              open_time: "10:00"
+              close_time: "20:00"
+              note: "Спецмероприятие — сокращённый день"
+      responses:
+        '200':
+          description: Расписание обновлено
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  schedule_id: "sch-010"
+                  date: "2026-03-25"
+                  open_time: "10:00"
+                  close_time: "20:00"
+                  note: "Спецмероприятие — сокращённый день"
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ===== ADMIN — NOTIFICATIONS =====
+  /admin/notifications:
+    get:
+      tags: [Admin — Notifications]
+      summary: Статус email-уведомлений
+      description: "Роль: `manager`"
+      operationId: listNotifications
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [queued, sent, failed, all], default: all }
+        - name: template
+          in: query
+          schema: { type: string, enum: [booking_created, booking_cancelled, welcome, reminder_24h] }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: per_page
+          in: query
+          schema: { type: integer, default: 50 }
+      responses:
+        '200':
+          description: Уведомления
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  items:
+                    - notification_id: "ntf-001"
+                      booking_id: "bk-550e8400-e29b-41d4-a716-446655440000"
+                      user_email: "ivan@example.com"
+                      template: "booking_created"
+                      status: "sent"
+                      created_at: "2026-03-14T12:30:01Z"
+                      sent_at: "2026-03-14T12:30:03Z"
+                      error: null
+                    - notification_id: "ntf-002"
+                      booking_id: "bk-882gb733-h52e-74g7-d049-779988773333"
+                      user_email: "maria@example.com"
+                      template: "booking_created"
+                      status: "failed"
+                      created_at: "2026-03-15T10:00:01Z"
+                      sent_at: null
+                      error: "SMTP connection timeout"
+                  pagination:
+                    page: 1
+                    per_page: 50
+                    total_items: 128
+                    total_pages: 3
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/notifications/{notification_id}/retry:
+    post:
+      tags: [Admin — Notifications]
+      summary: Повторная отправка
+      description: "Роль: `manager`"
+      operationId: retryNotification
+      parameters:
+        - name: notification_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Поставлено в очередь
+          content:
+            application/json:
+              example:
+                success: true
+                message: "Уведомление поставлено на повторную отправку"
+                data:
+                  notification_id: "ntf-002"
+                  status: "queued"
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          description: Уже отправлено
+          content:
+            application/json:
+              example:
+                success: false
+                error:
+                  code: "ALREADY_SENT"
+                  message: "Уведомление уже было успешно отправлено"
+
+# ================================================================
+# COMPONENTS
+# ================================================================
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: "JWT из POST /auth/login. Заголовок: Authorization: Bearer <token>"
+
+  parameters:
+    GameId:
+      name: game_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+      example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    BookingId:
+      name: booking_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+      example: "bk-550e8400-e29b-41d4-a716-446655440000"
+
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [full_name, email, password, password_confirmation]
+      properties:
+        full_name:
+          type: string
+          minLength: 2
+          maxLength: 255
+          example: "Иван Петров"
+        email:
+          type: string
+          format: email
+          example: "ivan@example.com"
+        password:
+          type: string
+          format: password
+          minLength: 8
+          description: "Мин. 8 символов, заглавная буква, цифра"
+          example: "Str0ng!Pass"
+        password_confirmation:
+          type: string
+          format: password
+          example: "Str0ng!Pass"
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: "ivan@example.com"
+        password:
+          type: string
+          format: password
+          example: "Str0ng!Pass"
+
+    CreateGameRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          maxLength: 255
+          example: "Колонизаторы"
+        description:
+          type: string
+          example: "Стройте дороги и города на острове Катан"
+        min_players:
+          type: integer
+          minimum: 1
+          example: 3
+        max_players:
+          type: integer
+          minimum: 1
+          example: 4
+        complexity:
+          type: string
+          enum: [easy, medium, hard]
+          example: "medium"
+        genre:
+          type: string
+          maxLength: 64
+          example: "strategy"
+
+    CreateBookingRequest:
+      type: object
+      required: [table_id, date, start_time, duration_minutes, guests_count]
+      properties:
+        table_id:
+          type: string
+          format: uuid
+          example: "t1a2b3c4-d5e6-7890-abcd-ef1234567890"
+        date:
+          type: string
+          format: date
+          example: "2026-03-20"
+        start_time:
+          type: string
+          pattern: "^\\d{2}:\\d{2}$"
+          example: "14:00"
+        duration_minutes:
+          type: integer
+          minimum: 60
+          maximum: 360
+          example: 120
+        guests_count:
+          type: integer
+          minimum: 1
+          maximum: 8
+          example: 4
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field: { type: string }
+                  message: { type: string }
+
+    Pagination:
+      type: object
+      properties:
+        page: { type: integer }
+        per_page: { type: integer }
+        total_items: { type: integer }
+        total_pages: { type: integer }
+
+  responses:
+    Unauthorized:
+      description: Не авторизован
+      content:
+        application/json:
+          example:
+            success: false
+            error:
+              code: "UNAUTHORIZED"
+              message: "Токен авторизации отсутствует или недействителен"
+    Forbidden:
+      description: Недостаточно прав
+      content:
+        application/json:
+          example:
+            success: false
+            error:
+              code: "FORBIDDEN"
+              message: "Недостаточно прав. Требуется роль: manager"
